@@ -3,8 +3,10 @@ from typing import List
 from fastapi import APIRouter, FastAPI, Request
 from pydantic import BaseModel
 
-from service.api.exceptions import UserNotFoundError
+import service.api.exceptions as exc
 from service.log import app_logger
+from service.models import Error
+from service.rec_models import modelByName
 
 
 class RecoResponse(BaseModel):
@@ -20,13 +22,19 @@ router = APIRouter()
     tags=["Health"],
 )
 async def health() -> str:
-    return "I am alive"
+    return "https://www.youtube.com/watch?v=xm3YgoEiEDc"
 
 
 @router.get(
     path="/reco/{model_name}/{user_id}",
     tags=["Recommendations"],
     response_model=RecoResponse,
+    responses={
+        404: {
+            "model": Error,
+            "description": "Model or User Not Found"
+        },
+    },
 )
 async def get_reco(
     request: Request,
@@ -35,13 +43,17 @@ async def get_reco(
 ) -> RecoResponse:
     app_logger.info(f"Request for model: {model_name}, user_id: {user_id}")
 
-    # Write your code here
+    if model_name not in modelByName:
+        raise exc.ModelNotFoundError(
+            error_message=f"Model {model_name} is unknown"
+        )
 
     if user_id > 10**9:
-        raise UserNotFoundError(error_message=f"User {user_id} not found")
+        raise exc.UserNotFoundError(
+            error_message=f"User {user_id} not found"
+        )
 
-    k_recs = request.app.state.k_recs
-    reco = list(range(k_recs))
+    reco = modelByName[model_name].recommend(user_id, request.app.state.k_recs)
     return RecoResponse(user_id=user_id, items=reco)
 
 
