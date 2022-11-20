@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, FastAPI, Request
 from pydantic import BaseModel
 
 import service.api.exceptions as exc
-from service.api.auth import call_http_bearer, check_token
+from service.utils.auth import call_http_bearer, check_token
 from service.log import app_logger
 from service.models import Error
 from service.rec_models import modelByName
