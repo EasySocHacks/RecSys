@@ -1,9 +1,10 @@
 from typing import List
 
-from fastapi import APIRouter, FastAPI, Request
+from fastapi import APIRouter, Depends, FastAPI, Request
 from pydantic import BaseModel
 
 import service.api.exceptions as exc
+from service.api.auth import call_http_bearer, check_token
 from service.log import app_logger
 from service.models import Error
 from service.rec_models import modelByName
@@ -30,6 +31,10 @@ async def health() -> str:
     tags=["Recommendations"],
     response_model=RecoResponse,
     responses={
+        401: {
+            "model": Error,
+            "description": "No Proper Bearer Token"
+        },
         404: {
             "model": Error,
             "description": "Model or User Not Found"
@@ -40,8 +45,11 @@ async def get_reco(
     request: Request,
     model_name: str,
     user_id: int,
+    token: str = Depends(call_http_bearer)
 ) -> RecoResponse:
     app_logger.info(f"Request for model: {model_name}, user_id: {user_id}")
+
+    check_token(request.app.state.token, token)
 
     if model_name not in modelByName:
         raise exc.ModelNotFoundError(
