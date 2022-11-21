@@ -27,7 +27,6 @@ def test_get_reco_no_token(
     with client:
         response = client.get(path)
     assert response.status_code == HTTPStatus.UNAUTHORIZED
-    assert response.json()["errors"][0]["error_key"] == "http_exception"
 
 
 def test_get_reco_invalid_token(
@@ -42,7 +41,6 @@ def test_get_reco_invalid_token(
             headers=get_headers(service_config.token + "INV")
         )
     assert response.status_code == HTTPStatus.UNAUTHORIZED
-    assert response.json()["errors"][0]["error_key"] == "http_exception"
 
 
 def test_get_reco_success(

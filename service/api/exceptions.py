@@ -1,5 +1,5 @@
-from typing import Optional, Sequence
 from http import HTTPStatus
+from typing import Optional, Sequence
 
 
 class AppException(Exception):
