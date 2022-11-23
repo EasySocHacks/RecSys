@@ -18,7 +18,7 @@ workers = env("GUNICORN_WORKERS", cpu_count())
 worker_class = env("GUNICORN_WORKER_CLASS", "uvicorn.workers.UvicornWorker")
 
 # The maximum number of requests a worker will process before restarting.
-max_requests = env("GUNICORN_MAX_REQUESTS", 1024)
+max_requests = env("GUNICORN_MAX_REQUESTS", 0)
 
 # Workers silent for more than this many seconds are killed and restarted.
 timeout = env("GUNICORN_TIMEOUT", 3600)
