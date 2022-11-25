@@ -23,7 +23,7 @@ router = APIRouter()
     tags=["Health"],
 )
 async def health() -> str:
-    return "https://www.youtube.com/watch?v=xm3YgoEiEDc"
+    return "I am alive"
 
 
 @router.get(
@@ -31,6 +31,10 @@ async def health() -> str:
     tags=["Recommendations"],
     response_model=RecoResponse,
     responses={
+        200: {
+            "model": RecoResponse,
+            "description": "Success Response with user_id and matched items"
+        },
         401: {
             "model": Error,
             "description": "No Proper Bearer Token"
