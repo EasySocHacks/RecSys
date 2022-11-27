@@ -2,6 +2,8 @@ name: CICD
 on:
   push
 
+env:
+  TOKEN: ${{secrets.API_KEY}}
 
 jobs:
   test:
