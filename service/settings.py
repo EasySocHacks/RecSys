@@ -1,3 +1,5 @@
+import os
+
 from pydantic import BaseSettings
 
 
@@ -23,7 +25,7 @@ class LogConfig(Config):
 class ServiceConfig(Config):
     service_name: str = "reco_service"
     k_recs: int = 10
-    token: str = "Strong_TOKEN"
+    token: str = os.getenv("TOKEN", "")
 
     log_config: LogConfig
 
