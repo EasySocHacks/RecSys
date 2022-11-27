@@ -3,7 +3,7 @@ on:
   push
 
 env:
-  TOKEN: ${{secrets.API_KEY}}
+  TOKEN: ${{ secrets.TOKEN }}
 
 jobs:
   test:
