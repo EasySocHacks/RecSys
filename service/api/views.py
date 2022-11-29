@@ -65,7 +65,7 @@ async def get_reco(
             error_message=f"User {user_id} not found"
         )
 
-    reco = modelByName[model_name].recommend(user_id, request.app.state.k_recs)
+    reco = modelByName[model_name].predict(user_id, request.app.state.k_recs)
     return RecoResponse(user_id=user_id, items=reco)
 
 
