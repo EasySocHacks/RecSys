@@ -5,7 +5,7 @@ import scipy as sp
 from rectools.dataset import Dataset
 from rectools.models.popular import PopularModel
 from typing import Dict, Any, Tuple, Callable, Union, List, Iterable, \
-    Reversible
+    Reversible, Optional
 from collections import Counter
 from implicit.nearest_neighbours import ItemItemRecommender
 
@@ -27,7 +27,7 @@ class UserKnn(BaseRecModel):
         self.items_inv_mapping = None
         self.items_mapping = None
 
-        self.watched = None
+        self.watched: Optional[pd.DataFrame] = None
 
         self.user_knn = None
         self.weights_matrix = None
@@ -103,15 +103,12 @@ class UserKnn(BaseRecModel):
             with open('dumps/userknn.dill', 'wb') as f:
                 dill.dump(self, f)
 
-    @staticmethod
-    def _generate_recs_mapper(model: ItemItemRecommender,
-                              user_mapping: Dict[int, int],
-                              user_inv_mapping: Dict[int, int], N: int) \
-        -> Callable[[int], Tuple[List[int], List[int]]]:
-        def _recs_mapper(user):
-            user_id = user_mapping[user]
-            recs = model.similar_items(user_id, N=N)
-            return [user_inv_mapping[user] for user, _ in recs], \
+    def _generate_recs_mapper(self, model: ItemItemRecommender) \
+        -> Callable[[int], Tuple[List[int], List[float]]]:
+        def _recs_mapper(user: int) -> Tuple[List[int], List[float]]:
+            user_id = self.users_mapping[user]
+            recs = model.similar_items(user_id, N=self.N_users)
+            return [self.users_inv_mapping[user] for user, _ in recs], \
                    [sim for _, sim in recs]
 
         return _recs_mapper
@@ -125,27 +122,97 @@ class UserKnn(BaseRecModel):
         return res
 
     def split_cold_users(self, users: pd.DataFrame) \
-            -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+        -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         unq_users = pd.DataFrame({'user_id': users['user_id'].unique()})
         unq_users['user_internal_id'] = \
             unq_users['user_id'].map(self.users_mapping)
         return unq_users, \
-            unq_users[unq_users['user_internal_id'].notnull()], \
-            unq_users[~unq_users['user_internal_id'].notnull()]
+               unq_users[unq_users['user_internal_id'].notnull()], \
+               unq_users[~unq_users['user_internal_id'].notnull()]
 
-    def predict(self, test: pd.DataFrame, k_recs: int = 10) -> pd.DataFrame:
+    def _predict_userknn(self, user_id: int) -> pd.DataFrame:
+        if self.users_mapping[user_id] is None:
+            return pd.DataFrame([], columns=['user_id', 'score', 'model'])
+        else:
+            mapper = self._generate_recs_mapper(self.user_knn)
 
+            sim_users, sims = mapper(user_id)
+            recs = pd.DataFrame({'sim_user_id': sim_users, 'sim': sims})
+
+            recs = recs[~(recs['sim'] >= 0.999999)] \
+                .merge(self.watched,
+                       left_on=['sim_user_id'],
+                       right_on=['user_id'],
+                       how='left') \
+                .explode('item_id') \
+                .sort_values(['sim'], ascending=False) \
+                .drop_duplicates(['item_id'], keep='first') \
+                .merge(self.item_idf, left_on='item_id', right_on='index',
+                       how='left')
+
+            recs['score'] = recs['sim'] * recs['idf']
+            recs = recs.sort_values('score', ascending=False)
+            recs['model'] = "userKNN"
+
+            return recs
+
+    def _predict_popular(self,
+                         k_recs: int,
+                         ) -> pd.DataFrame:
+        popularity_list = self.popular.popularity_list
+
+        reco = popularity_list[0][:k_recs]
+        scores = popularity_list[1][:k_recs]
+
+        popular = pd.DataFrame(
+            {
+                'item_id': self.dataset.item_id_map.convert_to_external(
+                    reco
+                ),
+                'score': scores,
+            }
+        )
+
+        popular['model'] = "popular"
+
+        return popular
+
+    def predict(self, user_id: int, k_recs: int) -> List[int]:
+        if not self.is_fitted:
+            raise ValueError("Please call fit before predict")
+
+        if self.users_mapping[user_id] is None:
+            return self._predict_popular(k_recs)["item_id"].to_list()
+        else:
+            watched = self.watched['item_id'][user_id]
+
+            recs = self._predict_userknn(user_id)
+
+            popular = self._predict_popular(k_recs + len(watched))
+
+            print(recs.head())
+            print()
+            print(popular.head())
+            print()
+
+            res = pd.concat([
+                recs['item_id'],
+                popular['item_id'],
+            ], ignore_index=True)
+            res = res[~res.isin(watched)].head(k_recs)
+
+            print(res)
+            print()
+
+            return res.to_list()
+
+    def recommend(self, test: pd.DataFrame, k_recs: int = 10) -> pd.DataFrame:
         all_users, users, cold_users = self.split_cold_users(test)
 
         if not self.is_fitted:
             raise ValueError("Please call fit before predict")
 
-        mapper = self._generate_recs_mapper(
-            model=self.user_knn,
-            user_mapping=self.users_mapping,
-            user_inv_mapping=self.users_inv_mapping,
-            N=self.N_users
-        )
+        mapper = self._generate_recs_mapper(self.user_knn)
 
         recs = pd.DataFrame({'user_id': users['user_id']})
         recs['sim_user_id'], recs['sim'] = zip(*recs['user_id'].map(mapper))
@@ -166,41 +233,22 @@ class UserKnn(BaseRecModel):
         recs['model'] = "userKNN"
 
         popular = self.popular.recommend(
-            self.dataset.user_id_map.external_ids,
+            users['user_id'].to_numpy(),
             self.dataset,
             k_recs,
-            False
+            True
         )
         popular['model'] = "popular"
-        popular['user_id'].map(self.users_inv_mapping)
-
-        cold_recs = self.dataset.interactions.df \
-            .groupby('item_id') \
-            .agg(score=('user_id', 'nunique')) \
-            .sort_values(['score'], ascending=False) \
-            .assign(key=1) \
-            .head(k_recs) \
-            .reset_index() \
-            .merge(all_users.assign(key=1), on='key') \
-            .drop("key", axis=1)
-        cold_recs['model'] = 'common_popular'
 
         print(recs.head())
         print(popular.head())
-        print(cold_recs)
 
         res = pd.concat([
             recs[['user_id', 'item_id', 'score', 'model']],
             popular[['user_id', 'item_id', 'score', 'model']],
-            cold_recs[['user_id', 'item_id', 'score', 'model']],
-        ], ignore_index=True)
+        ], ignore_index=True).reset_index()
 
         print(res.head(10))
-
-        cold_recs = self.dataset.interactions.df \
-            .groupby('item_id')['user_id'] \
-            .agg("nunique") \
-            .sort_values(ascending=False)
 
         recs['rank'] = recs.groupby('user_id').cumcount() + 1
 
