@@ -1,3 +1,4 @@
+from os.path import exists
 from typing import Dict
 
 from .base_model import BaseRecModel
@@ -6,5 +7,8 @@ from .userknn import UserKnn
 
 modelByName: Dict[str, BaseRecModel] = {
     "test_model": TestModel(),
-    "userknn_with_popularity": UserKnn.load("userknn_tfidf.dill"),
+    "userknn_with_popularity":
+        UserKnn.load("userknn_tfidf.dill")
+        if exists("dumps/userknn_tfidf.dill")
+        else None,
 }
