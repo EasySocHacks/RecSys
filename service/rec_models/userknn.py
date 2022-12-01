@@ -190,10 +190,10 @@ class UserKnn(BaseRecModel):
 
             popular = self._predict_popular(k_recs + len(watched))
 
-            print(recs.head())
-            print()
-            print(popular.head())
-            print()
+            # print(recs.head())
+            # print()
+            # print(popular.head())
+            # print()
 
             res = pd.concat([
                 recs['item_id'],
@@ -201,8 +201,8 @@ class UserKnn(BaseRecModel):
             ], ignore_index=True)
             res = res[~res.isin(watched)].head(k_recs)
 
-            print(res)
-            print()
+            # print(res)
+            # print()
 
             return res.to_list()
 
