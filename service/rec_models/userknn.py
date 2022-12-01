@@ -200,7 +200,7 @@ class UserKnn(BaseRecModel):
 
         recs = self._predict_userknn(user_id)
 
-        popular = self._predict_popular(k_recs + len(watched))
+        popular = self._predict_popular(2 * k_recs + len(watched))
 
         # print(recs.head())
         # print()
@@ -211,12 +211,12 @@ class UserKnn(BaseRecModel):
             recs['item_id'],
             popular['item_id'],
         ], ignore_index=True)
-        res = res[~res.isin(watched)].head(k_recs)
+        res = res[~res.isin(watched)].unique()[:k_recs].tolist()
 
         # print(res)
         # print()
 
-        return res.to_list()
+        return res
 
     def recommend(self, test: pd.DataFrame, k_recs: int = 10) -> pd.DataFrame:
         _, users, _ = self.split_cold_users(test)
