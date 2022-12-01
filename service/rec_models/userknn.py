@@ -145,7 +145,7 @@ class UserKnn(BaseRecModel):
             unq_users[~unq_users['user_internal_id'].notnull()]
 
     def _predict_userknn(self, user_id: int) -> pd.DataFrame:
-        if self.mappings.users_mapping[user_id] is None:
+        if user_id not in self.mappings.users_mapping:
             return pd.DataFrame([], columns=['user_id', 'score', 'model'])
         mapper = self._generate_recs_mapper(self.user_knn)
 
@@ -194,7 +194,7 @@ class UserKnn(BaseRecModel):
         if not self.is_fitted:
             raise ValueError("Please call fit before predict")
 
-        if self.mappings.users_mapping[user_id] is None:
+        if user_id not in self.mappings.users_mapping[user_id]:
             return self._predict_popular(k_recs)["item_id"].to_list()
         watched = self.watched['item_id'][user_id]
 
