@@ -194,7 +194,7 @@ class UserKnn(BaseRecModel):
         if not self.is_fitted:
             raise ValueError("Please call fit before predict")
 
-        if user_id not in self.mappings.users_mapping[user_id]:
+        if user_id not in self.mappings.users_mapping:
             return self._predict_popular(k_recs)["item_id"].to_list()
         watched = self.watched['item_id'][user_id]
 
