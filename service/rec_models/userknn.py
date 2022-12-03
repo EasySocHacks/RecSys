@@ -182,8 +182,10 @@ class UserKnn(BaseRecModel):
             raise ValueError("Invalid recommendation request count")
 
         if user_id in self.pred_calc.known_users:
-            return (self.pred_calc.known_users[user_id]
-                    + self.pred_calc.cold_user)[:k_recs]
+            return np.unique(np.array(
+                self.pred_calc.known_users[user_id]
+                + self.pred_calc.cold_user
+            ))[:k_recs].tolist()
         return self.pred_calc.cold_user
 
     # def _generate_predict_mapper(self, dataset: Dataset, k_recs: int) \
