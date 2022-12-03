@@ -1,10 +1,13 @@
 from typing import List
 
-from fastapi import APIRouter, FastAPI, Request
+from fastapi import APIRouter, Depends, FastAPI, Request
 from pydantic import BaseModel
 
-from service.api.exceptions import UserNotFoundError
+import service.api.exceptions as exc
 from service.log import app_logger
+from service.models import Error
+from service.rec_models import modelByName
+from service.utils.auth import call_http_bearer, check_token
 
 
 class RecoResponse(BaseModel):
@@ -27,21 +30,42 @@ async def health() -> str:
     path="/reco/{model_name}/{user_id}",
     tags=["Recommendations"],
     response_model=RecoResponse,
+    responses={
+        200: {
+            "model": RecoResponse,
+            "description": "Success Response with user_id and matched items"
+        },
+        401: {
+            "model": Error,
+            "description": "No Proper Bearer Token"
+        },
+        404: {
+            "model": Error,
+            "description": "Model or User Not Found"
+        },
+    },
 )
 async def get_reco(
     request: Request,
     model_name: str,
     user_id: int,
+    token: str = Depends(call_http_bearer)
 ) -> RecoResponse:
     app_logger.info(f"Request for model: {model_name}, user_id: {user_id}")
 
-    # Write your code here
+    check_token(request.app.state.token, token)
+
+    if model_name not in modelByName:
+        raise exc.ModelNotFoundError(
+            error_message=f"Model {model_name} is unknown"
+        )
 
     if user_id > 10**9:
-        raise UserNotFoundError(error_message=f"User {user_id} not found")
+        raise exc.UserNotFoundError(
+            error_message=f"User {user_id} not found"
+        )
 
-    k_recs = request.app.state.k_recs
-    reco = list(range(k_recs))
+    reco = modelByName[model_name].recommend(user_id, request.app.state.k_recs)
     return RecoResponse(user_id=user_id, items=reco)
 
 
