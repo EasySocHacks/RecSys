@@ -10,6 +10,7 @@ RUN pip install -U --no-cache-dir pip poetry setuptools wheel && \
 
 FROM python:3.8-slim-buster as runtime
 
+RUN apt update && apt-get install libgomp1
 WORKDIR /usr/src/app
 
 ENV PYTHONOPTIMIZE true
