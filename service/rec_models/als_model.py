@@ -7,6 +7,7 @@ from rectools.dataset import Dataset
 from rectools.models import ImplicitALSWrapperModel
 
 from service.rec_models.exceptions import RecModelNotLearnedYetException
+
 from .base_model import BaseRecModel
 
 _MODEL_NAME = "ALS"

@@ -6,7 +6,6 @@ import pandas as pd
 from rectools import Columns
 from rectools.dataset import Dataset
 
-from .als_model import ALSModel
 from .base_model import BaseRecModel
 from .factoring_machine_model import FactoringMachineModel
 from .test_model import TestModel
@@ -62,7 +61,7 @@ def _prepare_factoring_machine():
         user_features_frames.append(feature_frame)
     user_features = pd.concat(user_features_frames)
 
-    items["genre"] = items["genres"].str.lower()\
+    items["genre"] = items["genres"].str.lower() \
         .str.replace(", ", ",", regex=False).str.split(",")
     genre_feature = items[["item_id", "genre"]].explode("genre")
     genre_feature.columns = ["id", "value"]
