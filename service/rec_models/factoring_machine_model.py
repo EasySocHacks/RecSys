@@ -63,10 +63,15 @@ class FactoringMachineModel(BaseRecModel):
         return max_norm, augmented_factors
 
     def recommend(self, user_id: int, k_recs: int) -> List[int]:
-        return self._recommend_all(
-            self.user_embeddings[[user_id], :],
-            self.item_embeddings
-        )[user_id].flatten()
+        try:
+            labels, _ = self._recommend_all(
+                self.user_embeddings[[user_id], :],
+                self.item_embeddings
+            )
+
+            return list(labels.flatten())
+        except Exception:
+            return list(range(k_recs))
 
     @staticmethod
     def _recommend_all(query_factors, index_factors, topn=10):

@@ -20,6 +20,7 @@ ENV DEBIAN_FRONTEND noninteractive
 ENV TZ=UTC
 RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
+COPY --from=build kion_train kion_train
 COPY --from=build dist dist
 COPY --from=build main.py gunicorn.config.py ./
 
