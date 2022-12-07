@@ -1,15 +1,13 @@
-import os
 from typing import List, Union
 
-import dill
 import pandas as pd
 from implicit.als import AlternatingLeastSquares
 from rectools.columns import Columns
 from rectools.dataset import Dataset
 from rectools.models import ImplicitALSWrapperModel
 
-from service.rec_models import BaseRecModel
 from service.rec_models.exceptions import RecModelNotLearnedYetException
+from .base_model import BaseRecModel
 
 _MODEL_NAME = "ALS"
 
@@ -22,7 +20,6 @@ class ALSModel(BaseRecModel):
         is_fitting_features,
         n_threads=1,
         seed=0,
-        save=False
     ):
         self._n_factors = n_factors
         self._is_fitting_features = is_fitting_features
@@ -40,7 +37,7 @@ class ALSModel(BaseRecModel):
             fit_features_together=self._is_fitting_features,
         )
 
-        self.fit(dataset, save)
+        self.fit(dataset)
 
     def recommend(self, user_id: int, k_recs: int) -> List[int]:
         if self._dataset is None:
@@ -56,19 +53,7 @@ class ALSModel(BaseRecModel):
     def fit(
         self,
         dataset: Union[Dataset, pd.DataFrame],
-        save: bool = False,
     ) -> None:
         self._dataset = dataset
 
         self.model.fit(dataset)
-
-        if save:
-            if not os.path.exists("dumps"):
-                os.makedirs("dumps")
-            with open('dumps/als_model.dill', 'wb') as f:
-                dill.dump(self, f)
-
-    @staticmethod
-    def load(filename: str = "als_model.dill") -> "ALSModel":
-        with open("dumps/" + filename, 'rb') as f:
-            return dill.load(f)

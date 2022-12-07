@@ -1,7 +1,5 @@
-import os
 from typing import List, Union
 
-import dill
 import numpy as np
 import pandas as pd
 from lightfm import LightFM
@@ -26,7 +24,6 @@ class FactoringMachineModel(BaseRecModel):
         n_epoch=1,
         n_threads=1,
         seed=0,
-        save=False,
     ):
         self._n_factors = n_factors
         self._loss = loss
@@ -36,16 +33,6 @@ class FactoringMachineModel(BaseRecModel):
         self._n_epoch = n_epoch
         self._n_threads = n_threads
         self._seed = seed
-
-        self._dataset = dataset
-
-        self._M = 48
-        self._efC = 100
-        self._efS = 100
-        self._space_name = "negdotprod"
-
-        self.hnsw = None
-        self.query_matrix = None
 
         self.user_embeddings = None
         self.item_embeddings = None
@@ -63,7 +50,7 @@ class FactoringMachineModel(BaseRecModel):
             num_threads=self._n_threads,
         )
 
-        self.fit(dataset, save)
+        self.fit(dataset)
 
     @staticmethod
     def _augment_inner_product(factors):
@@ -100,28 +87,12 @@ class FactoringMachineModel(BaseRecModel):
     def fit(
         self,
         dataset: Union[Dataset, pd.DataFrame],
-        save: bool = False,
     ) -> None:
-        self._dataset = dataset
-
         self.model.fit(dataset)
 
-        if self._dataset is None:
+        if dataset is None:
             raise RecModelNotLearnedYetException(_MODEL_NAME)
 
         self.user_embeddings, self.item_embeddings = self.model.get_vectors(
-            self._dataset
+            dataset
         )
-
-        if save:
-            if not os.path.exists("dumps"):
-                os.makedirs("dumps")
-            with open('dumps/factoring_machine_model.dill', 'wb') as f:
-                dill.dump(self, f)
-
-    @staticmethod
-    def load(
-        filename: str = "factoring_machine_model.dill"
-    ) -> "FactoringMachineModel":
-        with open("dumps/" + filename, 'rb') as f:
-            return dill.load(f)
