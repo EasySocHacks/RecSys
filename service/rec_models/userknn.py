@@ -210,10 +210,7 @@ class UserKnn(BaseRecModel):
             ext_user = self.mappings.users_inv_mapping[user]
             if ext_user == user_id:
                 continue
-            watched = list(filter(
-                filter_func,
-                self.watched.watched_dict[ext_user]
-            ))
+            watched = self.watched.watched_dict[ext_user]
             watched_by_user.update(watched)
             filtered_knn_recs.extend(map(
                 add_idf(sim),
@@ -326,7 +323,8 @@ class UserKnn(BaseRecModel):
             .merge(self.watched.watched,
                    left_on=['sim_user_id'],
                    right_on=['user_id'],
-                   how='left') \
+                   how='left')
+        recs = recs \
             .explode('item_id') \
             .sort_values(['user_id', 'sim'], ascending=False) \
             .drop_duplicates(['user_id', 'item_id'], keep='first') \
