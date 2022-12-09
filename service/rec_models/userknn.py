@@ -23,6 +23,7 @@ class Models:
         self.user_knn = user_knn
         self.popular = popular
 
+
 class Mappings:
     """Ids Mappings for implicit itemKNN"""
 
