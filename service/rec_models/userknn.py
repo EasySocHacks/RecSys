@@ -274,7 +274,7 @@ class UserKnn(BaseRecModel):
 
         popular = self._predict_popular(k_recs + len(watched))
 
-        merged = np.unique(np.concatenate((recs, popular)))
+        merged = np.concatenate((recs, popular))
         indexes = np.unique(
             merged,
             return_index=True
@@ -296,7 +296,7 @@ class UserKnn(BaseRecModel):
 
     def recommend(self,
                   test: pd.DataFrame,
-                  k_recs: int = 10) -> pd.Dataframe:
+                  k_recs: int = 10) -> pd.DataFrame:
         """
         Make recommendations for batch of users with userKNN and baseline.
 
