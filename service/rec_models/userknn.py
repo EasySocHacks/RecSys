@@ -152,7 +152,7 @@ class UserKnn(BaseRecModel):
         """
 
         self.get_mappings(train)
-        weights_matrix = self.get_matrix(train)
+        weights_matrix = self.get_matrix(train, weight_col='weight')
 
         self._count_item_idf(train, train.shape[0])
 
@@ -210,7 +210,10 @@ class UserKnn(BaseRecModel):
             ext_user = self.mappings.users_inv_mapping[user]
             if ext_user == user_id:
                 continue
-            watched = self.watched.watched_dict[ext_user]
+            watched = list(filter(
+                filter_func,
+                self.watched.watched_dict[ext_user]
+            ))
             watched_by_user.update(watched)
             filtered_knn_recs.extend(map(
                 add_idf(sim),
