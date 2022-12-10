@@ -1,6 +1,7 @@
 import os
-from typing import Any, List, Tuple, Union
+from typing import Any, List, Tuple, Dict, Optional
 
+import dill
 import numpy as np
 import pandas as pd
 from lightfm import LightFM
@@ -9,7 +10,6 @@ from rectools.dataset import Dataset
 from rectools.models import LightFMWrapperModel
 
 from service.rec_models import BaseRecModel
-from service.rec_models.exceptions import RecModelNotLearnedYetException
 
 _MODEL_NAME = "FactoringMachine"
 ROOT_DIR = os.path.abspath(os.curdir)
@@ -43,20 +43,56 @@ class FMTuneParams:
         self.seed: int = seed
 
 
+class FMFeatures:
+    def __init__(
+        self,
+        user_features_df: pd.DataFrame,
+        cat_user_features: List[str],
+        item_features_df: pd.DataFrame,
+        cat_item_features: List[str],
+    ):
+        self.user_features_df: pd.DataFrame = user_features_df
+        self.cat_user_features: List[str] = cat_user_features
+        self.item_features_df: pd.DataFrame = item_features_df
+        self.cat_item_features: List[str] = cat_item_features
+
+
+class Mappings:
+    def __init__(
+        self,
+        users_inv_mapping: Dict[int, int],
+        users_mapping: Dict[int, int],
+        items_inv_mapping: Dict[int, int],
+        items_mapping: Dict[int, int],
+    ) -> None:
+        self.users_inv_mapping: Dict[int, int] = users_inv_mapping
+        self.users_mapping: Dict[int, int] = users_mapping
+        self.items_inv_mapping: Dict[int, int] = items_inv_mapping
+        self.items_mapping: Dict[int, int] = items_mapping
+
+
 class FactoringMachineModel(BaseRecModel):
     def __init__(
         self,
-        dataset: Union[Dataset, pd.DataFrame],
+        train: pd.DataFrame,
         hyper_params: FMHyperParams,
         tune_params: FMTuneParams,
+        features: FMFeatures,
+        save=False,
     ):
-        self.dataset = dataset
+        self.train: pd.DataFrame = train
 
-        self._hyper_params = hyper_params
-        self._tune_params = tune_params
+        self._hyper_params: FMHyperParams = hyper_params
+        self._tune_params: FMTuneParams = tune_params
+
+        self.features: FMFeatures = features
 
         self.user_embeddings: Any = None
         self.item_embeddings: Any = None
+
+        self.mappings: Optional[Mappings] = None
+
+        self.user_mapping: Dict[int, int] = {}
 
         self.model = LightFMWrapperModel(
             LightFM(
@@ -71,91 +107,10 @@ class FactoringMachineModel(BaseRecModel):
             num_threads=self._tune_params.n_threads,
         )
 
-        self.fit(self.dataset)
-
-    @staticmethod
-    def prepare():
-        os.environ["OPENBLAS_NUM_THREADS"] = "1"
-
-        interactions = pd.read_csv(f'{ROOT_DIR}/kion_train/interactions.csv')
-        users = pd.read_csv(f'{ROOT_DIR}/kion_train/users.csv')
-        items = pd.read_csv(f'{ROOT_DIR}/kion_train/items.csv')
-
-        cold_users = list(set(users["user_id"]) - set(interactions["user_id"]))
-        cold_users.append(0)
-        data = {
-            "user_id": cold_users,
-            "item_id": [0] * len(cold_users),
-            "last_watch_dt": "1990-01-01",
-            "total_dur": [0] * len(cold_users),
-            "watched_pct": [0] * len(cold_users)
-        }
-        new_interactions = pd.DataFrame(data)
-        interactions = interactions.append(new_interactions)
-
-        cold_items = list(set(items["item_id"]) - set(interactions["item_id"]))
-        cold_items.append(0)
-        data = {
-            "user_id": [0] * len(cold_items),
-            "item_id": cold_items,
-            "last_watch_dt": "1990-01-01",
-            "total_dur": [0] * len(cold_items),
-            "watched_pct": [0] * len(cold_items)
-        }
-        new_interactions = pd.DataFrame(data)
-        interactions = interactions.append(new_interactions)
-
-        interactions[Columns.Weight] = \
-            np.where(interactions['watched_pct'] > 10, 3, 1)
-        interactions[Columns.Weight].value_counts(normalize=True)
-
-        Columns.Datetime = 'last_watch_dt'
-
-        interactions[Columns.Datetime] = pd.to_datetime(
-            interactions[Columns.Datetime], format='%Y-%m-%d')
-
-        user_features_frames = []
-        for feature in ["sex", "age", "income"]:
-            feature_frame = users.reindex(columns=[Columns.User, feature])
-            feature_frame.columns = ["id", "value"]
-            feature_frame["feature"] = feature
-            user_features_frames.append(feature_frame)
-        user_features = pd.concat(user_features_frames)
-
-        items["genre"] = items["genres"].str.lower() \
-            .str.replace(", ", ",", regex=False).str.split(",")
-        genre_feature = items[["item_id", "genre"]].explode("genre")
-        genre_feature.columns = ["id", "value"]
-        genre_feature["feature"] = "genre"
-
-        content_feature = items.reindex(columns=[Columns.Item, "content_type"])
-        content_feature.columns = ["id", "value"]
-        content_feature["feature"] = "content_type"
-
-        item_features = pd.concat((genre_feature, content_feature))
-
-        dataset = Dataset.construct(
-            interactions_df=interactions,
-            user_features_df=user_features,
-            cat_user_features=["sex", "age", "income"],
-            item_features_df=item_features,
-            cat_item_features=["genre", "content_type"],
-        )
-
-        return FactoringMachineModel(
-            dataset,
-            FMHyperParams(
-                64,
-                "warp",
-                0.01,
-                0,
-                0,
-            ),
-            FMTuneParams(
-                1,
-                16,
-                123,
-            ),
+        self.fit(
+            train=self.train,
+            features=features,
+            save=save,
         )
 
     @staticmethod
@@ -169,8 +124,13 @@ class FactoringMachineModel(BaseRecModel):
         return max_norm, augmented_factors
 
     def recommend(self, user_id: int, k_recs: int) -> List[int]:
+        if user_id not in self.mappings.users_inv_mapping:
+            return []
+
         labels, _ = self._recommend_all(
-            self.user_embeddings[[user_id], :],
+            self.user_embeddings[[self.mappings.users_inv_mapping[
+                                      user_id]
+                                  ], :],
             self.item_embeddings
         )
 
@@ -196,15 +156,43 @@ class FactoringMachineModel(BaseRecModel):
         distances = output[x_indices, top_indices].reshape(-1, topn)
         return labels, distances
 
+    def get_mappings(self, train) -> None:
+        users_inv_mapping = dict(enumerate(train['user_id'].unique()))
+        users_mapping = {v: k for k, v in users_inv_mapping.items()}
+
+        items_inv_mapping = dict(enumerate(train['item_id'].unique()))
+        items_mapping = {v: k for k, v in items_inv_mapping.items()}
+        self.mappings = Mappings(
+            users_inv_mapping, users_mapping, items_inv_mapping, items_mapping,
+        )
+
     def fit(
         self,
-        dataset: Union[Dataset, pd.DataFrame],
+        train: pd.DataFrame,
+        features: FMFeatures,
+        save=False,
     ) -> None:
-        self.model.fit(dataset)
+        rectools_dataset = Dataset.construct(
+            interactions_df=train,
+            user_features_df=features.user_features_df,
+            cat_user_features=features.cat_user_features,
+            item_features_df=features.item_features_df,
+            cat_item_features=features.cat_item_features,
+        )
 
-        if dataset is None:
-            raise RecModelNotLearnedYetException(_MODEL_NAME)
+        self.get_mappings(train)
+
+        self.model.fit(rectools_dataset)
 
         self.user_embeddings, self.item_embeddings = self.model.get_vectors(
-            dataset
+            rectools_dataset
         )
+
+        if save:
+            with open(f'{ROOT_DIR}/dumps/fm.dill', 'wb') as f:
+                dill.dump(self, f)
+
+    @staticmethod
+    def load() -> 'FactoringMachineModel':
+        with open(f'{ROOT_DIR}/dumps/fm.dill', 'rb') as f:
+            return dill.load(f)
