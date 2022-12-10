@@ -16,10 +16,9 @@ from .base_model import BaseRecModel
 class Models:
     """Inner Models"""
 
-    def __init__(self,
-                 user_knn: ItemItemRecommender,
-                 popular: PopularModel
-                 ) -> None:
+    def __init__(
+            self, user_knn: ItemItemRecommender, popular: PopularModel,
+    ) -> None:
         self.user_knn = user_knn
         self.popular = popular
 
@@ -27,12 +26,13 @@ class Models:
 class Mappings:
     """Ids Mappings for implicit itemKNN"""
 
-    def __init__(self,
-                 users_inv_mapping: Dict[int, int],
-                 users_mapping: Dict[int, int],
-                 items_inv_mapping: Dict[int, int],
-                 items_mapping: Dict[int, int],
-                 ) -> None:
+    def __init__(
+            self,
+            users_inv_mapping: Dict[int, int],
+            users_mapping: Dict[int, int],
+            items_inv_mapping: Dict[int, int],
+            items_mapping: Dict[int, int],
+    ) -> None:
         self.users_inv_mapping: Dict[int, int] = users_inv_mapping
         self.users_mapping: Dict[int, int] = users_mapping
         self.items_inv_mapping: Dict[int, int] = items_inv_mapping
@@ -70,9 +70,12 @@ class UserKnn(BaseRecModel):
         Nearest user count for KNN model
     """
 
-    def __init__(self, IIR_model: ItemItemRecommender,
-                 popularity: str = "n_users",
-                 N_users: int = 50) -> None:
+    def __init__(
+            self,
+            IIR_model: ItemItemRecommender,
+            popularity: str = 'n_users',
+            N_users: int = 50,
+    ) -> None:
         self.is_fitted: bool = False
 
         self.mappings: Optional[Mappings] = None
@@ -97,15 +100,12 @@ class UserKnn(BaseRecModel):
         items_inv_mapping = dict(enumerate(train['item_id'].unique()))
         items_mapping = {v: k for k, v in items_inv_mapping.items()}
         self.mappings = Mappings(
-            users_inv_mapping,
-            users_mapping,
-            items_inv_mapping,
-            items_mapping
+            users_inv_mapping, users_mapping, items_inv_mapping, items_mapping,
         )
 
-    def get_matrix(self, df: pd.DataFrame,
-                   weight_col: str = None) \
-            -> sp.sparse.coo_matrix:
+    def get_matrix(
+            self, df: pd.DataFrame, weight_col: str = None,
+    ) -> sp.sparse.coo_matrix:
         if weight_col:
             weights = df[weight_col].astype(np.float32)
         else:
@@ -123,8 +123,8 @@ class UserKnn(BaseRecModel):
         return interaction_matrix
 
     @staticmethod
-    def load(filename: str = "userknn.dill") -> "UserKnn":
-        with open("dumps/" + filename, 'rb') as f:
+    def load(filename: str = 'userknn.dill') -> 'UserKnn':
+        with open('dumps/' + filename, 'rb') as f:
             return dill.load(f)
 
     @staticmethod
@@ -133,14 +133,13 @@ class UserKnn(BaseRecModel):
 
     def _count_item_idf(self, df: pd.DataFrame, n: int) -> None:
         item_cnt: Counter = Counter(df['item_id'].values)
-        item_idf = pd.DataFrame.from_dict(item_cnt, orient='index',
-                                          columns=['doc_freq']).reset_index()
-        item_idf['idf'] = item_idf['doc_freq'].apply(
-            lambda x: self.idf(n, x))
+        item_idf = pd.DataFrame.from_dict(
+            item_cnt, orient='index', columns=['doc_freq'],
+        ).reset_index()
+        item_idf['idf'] = item_idf['doc_freq'].apply(lambda x: self.idf(n, x))
         self.item_idf = IDF(item_idf)
 
-    def fit(self, train: pd.DataFrame,
-            save: bool = False) -> None:
+    def fit(self, train: pd.DataFrame, save: bool = False) -> None:
         """
         Fitting inner models.
 
@@ -159,9 +158,7 @@ class UserKnn(BaseRecModel):
 
         self.models.user_knn.fit(weights_matrix)
 
-        self.dataset = Dataset.construct(
-            train,
-        )
+        self.dataset = Dataset.construct(train)
         self.models.popular.fit(self.dataset)
 
         self.is_fitted = True
@@ -195,8 +192,7 @@ class UserKnn(BaseRecModel):
 
         int_user_id = self.mappings.users_mapping[user_id]
         knn_recs = self.models.user_knn.similar_items(
-            int_user_id,
-            N=self.N_users
+            int_user_id, N=self.N_users,
         )
         knn_recs.sort(key=lambda t: t[1], reverse=True)
         filtered_knn_recs: List[Tuple[int, float]] = []
@@ -211,22 +207,16 @@ class UserKnn(BaseRecModel):
             ext_user = self.mappings.users_inv_mapping[user]
             if ext_user == user_id:
                 continue
-            watched = list(filter(
-                filter_func,
-                self.watched.watched_dict[ext_user]
-            ))
+            watched = list(
+                filter(filter_func, self.watched.watched_dict[ext_user]),
+            )
             watched_by_user.update(watched)
-            filtered_knn_recs.extend(map(
-                add_idf(sim),
-                watched
-            ))
+            filtered_knn_recs.extend(map(add_idf(sim), watched))
 
         filtered_knn_recs.sort(key=lambda t: t[1], reverse=True)
         return np.array(list(map(lambda t: t[0], filtered_knn_recs[:k_recs])))
 
-    def _predict_popular(self,
-                         k_recs: int
-                         ) -> np.ndarray:
+    def _predict_popular(self, k_recs: int) -> np.ndarray:
         """
         Make popularity baseline recommendations.
 
@@ -276,28 +266,24 @@ class UserKnn(BaseRecModel):
         popular = self._predict_popular(k_recs + len(watched))
 
         merged = np.concatenate((recs, popular))
-        indexes = np.unique(
-            merged,
-            return_index=True
-        )[1]
+        indexes = np.unique(merged, return_index=True)[1]
 
         return [merged[idx] for idx in sorted(indexes)][:k_recs]
 
-    def _generate_recs_mapper(self,
-                              model: ItemItemRecommender) \
-            -> Callable[[int], Tuple[List[int], List[float]]]:
+    def _generate_recs_mapper(
+            self, model: ItemItemRecommender,
+    ) -> Callable[[int], Tuple[List[int], List[float]]]:
         def _recs_mapper(user: int) -> Tuple[List[int], List[float]]:
             user_id = self.mappings.users_mapping[user]
             recs = model.similar_items(user_id, N=self.N_users)
-            return [self.mappings.users_inv_mapping[user]
-                    for user, _ in recs], \
-                   [sim for _, sim in recs]
+            return (
+                [self.mappings.users_inv_mapping[user] for user, _ in recs],
+                [sim for _, sim in recs],
+            )
 
         return _recs_mapper
 
-    def recommend(self,
-                  test: pd.DataFrame,
-                  k_recs: int = 10) -> pd.DataFrame:
+    def recommend(self, test: pd.DataFrame, k_recs: int = 10) -> pd.DataFrame:
         """
         Make recommendations for batch of users with userKNN and baseline.
 
@@ -327,8 +313,7 @@ class UserKnn(BaseRecModel):
             .merge(self.watched.watched,
                    left_on=['sim_user_id'],
                    right_on=['user_id'],
-                   how='left')
-        recs = recs \
+                   how='left') \
             .explode('item_id') \
             .sort_values(['user_id', 'sim'], ascending=False) \
             .drop_duplicates(['user_id', 'item_id'], keep='first') \
@@ -339,19 +324,20 @@ class UserKnn(BaseRecModel):
         recs = recs.sort_values(['user_id', 'score'], ascending=False)
 
         popular = self.models.popular.recommend(
-            test['user_id'].unique(),
-            self.dataset,
-            k_recs,
-            True
+            test['user_id'].unique(), self.dataset, k_recs, True,
         )
-        recs = pd.concat([
-            recs[['user_id', 'item_id', 'score']],
-            popular[['user_id', 'item_id', 'score']],
-        ], ignore_index=True).reset_index()
+        recs = pd.concat(
+            [
+                recs[['user_id', 'item_id', 'score']],
+                popular[['user_id', 'item_id', 'score']],
+            ],
+            ignore_index=True,
+        ).reset_index()
 
         recs['rank'] = recs.groupby('user_id').cumcount() + 1
 
         res = recs[recs['rank'] <= k_recs][
-            ['user_id', 'item_id', 'score', 'rank']]
+            ['user_id', 'item_id', 'score', 'rank']
+        ]
 
         return res
