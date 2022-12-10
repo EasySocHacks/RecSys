@@ -96,5 +96,4 @@ def _prepare_factoring_machine():
 
 modelByName: Dict[str, BaseRecModel] = {
     "test_model": TestModel(),
-    "factoring_machine": _prepare_factoring_machine()
 }
