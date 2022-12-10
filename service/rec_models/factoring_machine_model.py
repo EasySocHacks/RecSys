@@ -1,4 +1,4 @@
-from typing import List, Union
+from typing import Any, List, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -15,27 +15,27 @@ _MODEL_NAME = "FactoringMachine"
 class FactoringMachineModel(BaseRecModel):
     def __init__(
         self,
-        dataset,
-        n_factors,
-        loss,
-        lr,
-        ua,
-        ia,
-        n_epoch=1,
-        n_threads=1,
-        seed=0,
+        dataset: Union[Dataset, pd.DataFrame],
+        n_factors: int,
+        loss: str,
+        lr: float,
+        ua: int,
+        ia: int,
+        n_epoch: int = 1,
+        n_threads: int = 1,
+        seed: int = 0,
     ):
-        self._n_factors = n_factors
-        self._loss = loss
-        self._lr = lr
-        self._ua = ua
-        self._ia = ia
-        self._n_epoch = n_epoch
-        self._n_threads = n_threads
-        self._seed = seed
+        self._n_factors: int = n_factors
+        self._loss: str = loss
+        self._lr: float = lr
+        self._ua: int = ua
+        self._ia: int = ia
+        self._n_epoch: int = n_epoch
+        self._n_threads: int = n_threads
+        self._seed: int = seed
 
-        self.user_embeddings = None
-        self.item_embeddings = None
+        self.user_embeddings: Any = None
+        self.item_embeddings: Any = None
 
         self.model = LightFMWrapperModel(
             LightFM(
@@ -53,7 +53,7 @@ class FactoringMachineModel(BaseRecModel):
         self.fit(dataset)
 
     @staticmethod
-    def _augment_inner_product(factors):
+    def _augment_inner_product(factors: int) -> Tuple[float, np.ndarray]:
         normed_factors = np.linalg.norm(factors, axis=1)
         max_norm = normed_factors.max()
 
@@ -74,7 +74,11 @@ class FactoringMachineModel(BaseRecModel):
             return list(range(k_recs))
 
     @staticmethod
-    def _recommend_all(query_factors, index_factors, topn=10):
+    def _recommend_all(
+        query_factors: np.ndarray,
+        index_factors: np.ndarray,
+        topn: int = 10
+    ) -> Tuple[np.ndarray, np.ndarray]:
         output = query_factors.dot(index_factors.T)
         argpartition_indices = np.argpartition(output, -topn)[:, -topn:]
 
