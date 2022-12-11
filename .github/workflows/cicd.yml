@@ -18,6 +18,7 @@ jobs:
       - run: pip install poetry
       - run: poetry run pip install lightfm
       - run: poetry run pip install implicit==0.4.4
+      - run: poetry run pip install hnswlib
       - run: poetry install
       - run: make setup
       - run: make lint
