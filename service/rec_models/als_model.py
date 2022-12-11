@@ -6,8 +6,6 @@ from rectools.columns import Columns
 from rectools.dataset import Dataset
 from rectools.models import ImplicitALSWrapperModel
 
-from service.rec_models.exceptions import RecModelNotLearnedYetException
-
 from .base_model import BaseRecModel
 
 _MODEL_NAME = "ALS"
@@ -41,9 +39,6 @@ class ALSModel(BaseRecModel):
         self.fit(dataset)
 
     def recommend(self, user_id: int, k_recs: int) -> List[int]:
-        if self._dataset is None:
-            raise RecModelNotLearnedYetException(_MODEL_NAME)
-
         return self.model.recommend(
             users=[user_id],
             dataset=self._dataset,
