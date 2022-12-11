@@ -2,11 +2,13 @@ import os
 from typing import Any, Dict, List, Optional, Tuple
 
 import dill
+import nmslib
 import numpy as np
 import pandas as pd
 from lightfm import LightFM
 from rectools.dataset import Dataset
 from rectools.models import LightFMWrapperModel
+import hnswlib
 
 from service.rec_models import BaseRecModel
 
@@ -80,17 +82,33 @@ class FMEmbedding:
         self.item_embeddings = item_embeddings
 
 
+class NeighParams:
+    def __init__(
+        self,
+        M: int = 48,
+        efC: int = 100,
+        efS: int = 100,
+        threads: int = 4
+    ):
+        self.M = M
+        self.efC = efC
+        self.efS = efS
+        self.threads = threads
+
+
 class FactoringMachineModel(BaseRecModel):
     def __init__(
         self,
         train: pd.DataFrame,
         hyper_params: FMHyperParams,
         tune_params: FMTuneParams,
+        neigh_params: NeighParams,
         features: FMFeatures,
         save=False,
     ):
         self._hyper_params: FMHyperParams = hyper_params
         self._tune_params: FMTuneParams = tune_params
+        self._neigh_params = neigh_params
 
         self.features: FMFeatures = features
 
@@ -99,6 +117,8 @@ class FactoringMachineModel(BaseRecModel):
         self.mappings: Optional[Mappings] = None
 
         self.user_mapping: Dict[int, int] = {}
+
+        self.label: Any = None
 
         self.model = LightFMWrapperModel(
             LightFM(
@@ -129,41 +149,24 @@ class FactoringMachineModel(BaseRecModel):
 
         return max_norm, augmented_factors
 
-    def recommend(self, user_id: int, k_recs: int) -> List[int]:
-        try:
-            if user_id not in self.mappings.users_mapping:
-                return list(range(10))
+    def recommend(self, user_id: int, k_recs: int, n_threads=4) -> List[int]:
+        if user_id not in self.mappings.users_mapping:
+            return []
 
-            labels, _ = self._recommend_all(
-                self.embeddings.user_embeddings[[self.mappings.users_mapping[
-                                                     user_id]
-                                                 ], :],
-                self.embeddings.item_embeddings
-            )
-
-            return list(labels.flatten())
-        except Exception:
-            return list(range(10))
+        return [
+            self.mappings.items_inv_mapping[item]
+            for item
+            in list(self.label[self.mappings.users_mapping[user_id], :])
+        ]
 
     @staticmethod
-    def _recommend_all(
-        query_factors: np.ndarray,
-        index_factors: np.ndarray,
-        topn: int = 10
-    ) -> Tuple[np.ndarray, np.ndarray]:
-        output = query_factors.dot(index_factors.T)
-        argpartition_indices = np.argpartition(output, -topn)[:, -topn:]
+    def augment_inner_product(factors):
+        normed_factors = np.linalg.norm(factors, axis=1)
+        max_norm = normed_factors.max()
 
-        x_indices = np.repeat(np.arange(output.shape[0]), topn)
-        y_indices = argpartition_indices.flatten()
-        top_value = output[x_indices, y_indices].reshape(output.shape[0], topn)
-        top_indices = np.argsort(top_value)[:, ::-1]
-
-        y_indices = top_indices.flatten()
-        top_indices = argpartition_indices[x_indices, y_indices]
-        labels = top_indices.reshape(-1, topn)
-        distances = output[x_indices, top_indices].reshape(-1, topn)
-        return labels, distances
+        extra_dim = np.sqrt(max_norm ** 2 - normed_factors ** 2).reshape(-1, 1)
+        augmented_factors = np.append(factors, extra_dim, axis=1)
+        return max_norm, augmented_factors
 
     def get_mappings(self, train) -> None:
         users_inv_mapping = dict(enumerate(train['user_id'].unique()))
@@ -197,7 +200,35 @@ class FactoringMachineModel(BaseRecModel):
             rectools_dataset
         )
 
-        self.embeddings = FMEmbedding(user_embeddings, item_embeddings)
+        max_norm, augmented_item_embeddings = self.augment_inner_product(
+            item_embeddings
+        )
+        extra_zero = np.zeros((user_embeddings.shape[0], 1))
+        augmented_user_embeddings = np.append(
+            user_embeddings,
+            extra_zero,
+            axis=1
+        )
+
+        max_elements, dim = augmented_item_embeddings.shape
+        hnsw = hnswlib.Index("ip", dim)
+        hnsw.init_index(
+            max_elements,
+            self._neigh_params.M,
+            self._neigh_params.efC
+        )
+        hnsw.add_items(augmented_item_embeddings)
+        hnsw.set_ef(self._neigh_params.efS)
+
+        self.label, _ = hnsw.knn_query(
+            augmented_user_embeddings,
+            k=10
+        )
+
+        self.embeddings = FMEmbedding(
+            augmented_user_embeddings,
+            augmented_item_embeddings
+        )
 
         if save:
             with open(f'{ROOT_DIR}/dumps/fm.dill', 'wb') as f:
