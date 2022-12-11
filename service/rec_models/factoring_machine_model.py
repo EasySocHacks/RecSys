@@ -1,14 +1,13 @@
 import os
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import dill
-import nmslib
+import hnswlib
 import numpy as np
 import pandas as pd
 from lightfm import LightFM
 from rectools.dataset import Dataset
 from rectools.models import LightFMWrapperModel
-import hnswlib
 
 from service.rec_models import BaseRecModel
 
@@ -85,10 +84,10 @@ class FMEmbedding:
 class NeighParams:
     def __init__(
         self,
-        M: int = 48,
-        efC: int = 100,
-        efS: int = 100,
-        threads: int = 4
+        M: int = 128,
+        efC: int = 256,
+        efS: int = 256,
+        threads: int = 16
     ):
         self.M = M
         self.efC = efC
@@ -106,36 +105,29 @@ class FactoringMachineModel(BaseRecModel):
         features: FMFeatures,
         save=False,
     ):
-        self._hyper_params: FMHyperParams = hyper_params
-        self._tune_params: FMTuneParams = tune_params
-        self._neigh_params = neigh_params
-
+        self.neigh_params = neigh_params
         self.features: FMFeatures = features
 
         self.embeddings: Optional[FMEmbedding] = None
-
         self.mappings: Optional[Mappings] = None
-
-        self.user_mapping: Dict[int, int] = {}
-
         self.label: Any = None
+        self.distance: Any = None
 
         self.model = LightFMWrapperModel(
             LightFM(
-                no_components=self._hyper_params.n_factors,
-                loss=self._hyper_params.loss,
-                random_state=self._tune_params.seed,
-                learning_rate=self._hyper_params.lr,
-                user_alpha=self._hyper_params.ua,
-                item_alpha=self._hyper_params.ia,
+                no_components=hyper_params.n_factors,
+                loss=hyper_params.loss,
+                random_state=tune_params.seed,
+                learning_rate=hyper_params.lr,
+                user_alpha=hyper_params.ua,
+                item_alpha=hyper_params.ia,
             ),
-            epochs=self._tune_params.n_epoch,
-            num_threads=self._tune_params.n_threads,
+            epochs=tune_params.n_epoch,
+            num_threads=tune_params.n_threads,
         )
 
         self.fit(
             train=train,
-            features=features,
             save=save,
         )
 
@@ -149,9 +141,21 @@ class FactoringMachineModel(BaseRecModel):
 
         return max_norm, augmented_factors
 
-    def recommend(self, user_id: int, k_recs: int, n_threads=4) -> List[int]:
+    def recommend(
+        self,
+        user_id: int,
+        k_recs: int,
+    ) -> List[int]:
         if user_id not in self.mappings.users_mapping:
-            return []
+            return [
+                self.mappings.items_inv_mapping[item]
+                for item
+                in np.random.randint(
+                    low=0,
+                    high=self.embeddings.item_embeddings.shape[0],
+                    size=k_recs,
+                )
+            ]
 
         return [
             self.mappings.items_inv_mapping[item]
@@ -160,7 +164,7 @@ class FactoringMachineModel(BaseRecModel):
         ]
 
     @staticmethod
-    def augment_inner_product(factors):
+    def augment_inner_product(factors: np.ndarray) -> Union[Any, np.ndarray]:
         normed_factors = np.linalg.norm(factors, axis=1)
         max_norm = normed_factors.max()
 
@@ -181,15 +185,14 @@ class FactoringMachineModel(BaseRecModel):
     def fit(
         self,
         train: pd.DataFrame,
-        features: FMFeatures,
         save=False,
     ) -> None:
         rectools_dataset = Dataset.construct(
             interactions_df=train,
-            user_features_df=features.user_features_df,
-            cat_user_features=features.cat_user_features,
-            item_features_df=features.item_features_df,
-            cat_item_features=features.cat_item_features,
+            user_features_df=self.features.user_features_df,
+            cat_user_features=self.features.cat_user_features,
+            item_features_df=self.features.item_features_df,
+            cat_item_features=self.features.cat_item_features,
         )
 
         self.get_mappings(train)
@@ -200,7 +203,7 @@ class FactoringMachineModel(BaseRecModel):
             rectools_dataset
         )
 
-        max_norm, augmented_item_embeddings = self.augment_inner_product(
+        _, augmented_item_embeddings = self.augment_inner_product(
             item_embeddings
         )
         extra_zero = np.zeros((user_embeddings.shape[0], 1))
@@ -214,16 +217,17 @@ class FactoringMachineModel(BaseRecModel):
         hnsw = hnswlib.Index("ip", dim)
         hnsw.init_index(
             max_elements,
-            self._neigh_params.M,
-            self._neigh_params.efC
+            self.neigh_params.M,
+            self.neigh_params.efC
         )
         hnsw.add_items(augmented_item_embeddings)
-        hnsw.set_ef(self._neigh_params.efS)
+        hnsw.set_ef(self.neigh_params.efS)
 
-        self.label, _ = hnsw.knn_query(
+        self.label, distance = hnsw.knn_query(
             augmented_user_embeddings,
             k=10
         )
+        self.distance = 1 - distance
 
         self.embeddings = FMEmbedding(
             augmented_user_embeddings,
