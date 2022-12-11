@@ -1,11 +1,10 @@
 import os
-from typing import Any, List, Tuple, Dict, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import dill
 import numpy as np
 import pandas as pd
 from lightfm import LightFM
-from rectools import Columns
 from rectools.dataset import Dataset
 from rectools.models import LightFMWrapperModel
 
@@ -71,6 +70,16 @@ class Mappings:
         self.items_mapping: Dict[int, int] = items_mapping
 
 
+class FMEmbedding:
+    def __init__(
+        self,
+        user_embeddings: Any,
+        item_embeddings: Any,
+    ):
+        self.user_embeddings = user_embeddings
+        self.item_embeddings = item_embeddings
+
+
 class FactoringMachineModel(BaseRecModel):
     def __init__(
         self,
@@ -80,15 +89,12 @@ class FactoringMachineModel(BaseRecModel):
         features: FMFeatures,
         save=False,
     ):
-        self.train: pd.DataFrame = train
-
         self._hyper_params: FMHyperParams = hyper_params
         self._tune_params: FMTuneParams = tune_params
 
         self.features: FMFeatures = features
 
-        self.user_embeddings: Any = None
-        self.item_embeddings: Any = None
+        self.embeddings: Optional[FMEmbedding] = None
 
         self.mappings: Optional[Mappings] = None
 
@@ -108,7 +114,7 @@ class FactoringMachineModel(BaseRecModel):
         )
 
         self.fit(
-            train=self.train,
+            train=train,
             features=features,
             save=save,
         )
@@ -128,10 +134,10 @@ class FactoringMachineModel(BaseRecModel):
             return []
 
         labels, _ = self._recommend_all(
-            self.user_embeddings[[self.mappings.users_inv_mapping[
+            self.embeddings.user_embeddings[[self.mappings.users_inv_mapping[
                                       user_id]
                                   ], :],
-            self.item_embeddings
+            self.embeddings.item_embeddings
         )
 
         return list(labels.flatten())
@@ -184,9 +190,11 @@ class FactoringMachineModel(BaseRecModel):
 
         self.model.fit(rectools_dataset)
 
-        self.user_embeddings, self.item_embeddings = self.model.get_vectors(
+        user_embeddings, item_embeddings = self.model.get_vectors(
             rectools_dataset
         )
+
+        self.embeddings = FMEmbedding(user_embeddings, item_embeddings)
 
         if save:
             with open(f'{ROOT_DIR}/dumps/fm.dill', 'wb') as f:
