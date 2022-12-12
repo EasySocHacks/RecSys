@@ -8,6 +8,7 @@ import pandas as pd
 from lightfm import LightFM
 from rectools.dataset import Dataset
 from rectools.models import LightFMWrapperModel
+from rectools.models.popular import PopularModel
 
 from service.rec_models import BaseRecModel
 
@@ -89,21 +90,29 @@ class NeighParams:
         efS: int = 256,
         threads: int = 16
     ):
-        self.M = M
-        self.efC = efC
-        self.efS = efS
-        self.threads = threads
+        self.M: int = M
+        self.efC: int = efC
+        self.efS: int = efS
+        self.threads: int = threads
+
+
+class Models:
+    def __init__(
+        self,
+        lightfm: LightFMWrapperModel,
+        popular: PopularModel
+    ):
+        self.lightfm: LightFMWrapperModel = lightfm
+        self.popular: PopularModel = popular
 
 
 class FactoringMachineModel(BaseRecModel):
     def __init__(
         self,
-        train: pd.DataFrame,
         hyper_params: FMHyperParams,
         tune_params: FMTuneParams,
         neigh_params: NeighParams,
         features: FMFeatures,
-        save=False,
     ):
         self.neigh_params = neigh_params
         self.features: FMFeatures = features
@@ -111,25 +120,34 @@ class FactoringMachineModel(BaseRecModel):
         self.embeddings: Optional[FMEmbedding] = None
         self.mappings: Optional[Mappings] = None
         self.label: Any = None
-        self.distance: Any = None
 
-        self.model = LightFMWrapperModel(
-            LightFM(
-                no_components=hyper_params.n_factors,
-                loss=hyper_params.loss,
-                random_state=tune_params.seed,
-                learning_rate=hyper_params.lr,
-                user_alpha=hyper_params.ua,
-                item_alpha=hyper_params.ia,
+        self.dataset: Optional[Dataset] = None
+
+        self.models = Models(
+            lightfm=LightFMWrapperModel(
+                LightFM(
+                    no_components=hyper_params.n_factors,
+                    loss=hyper_params.loss,
+                    random_state=tune_params.seed,
+                    learning_rate=hyper_params.lr,
+                    user_alpha=hyper_params.ua,
+                    item_alpha=hyper_params.ia,
+                ),
+                epochs=tune_params.n_epoch,
+                num_threads=tune_params.n_threads,
             ),
-            epochs=tune_params.n_epoch,
-            num_threads=tune_params.n_threads,
+            popular=PopularModel(
+                popularity="n_users",
+                verbose=0,
+            )
         )
 
-        self.fit(
-            train=train,
-            save=save,
-        )
+    def _predict_popular(self, k_recs: int) -> np.ndarray:
+        popularity_list = self.models.popular.popularity_list
+
+        reco = popularity_list[0][:k_recs]
+
+        return self.dataset.item_id_map.convert_to_external(reco)
 
     @staticmethod
     def _augment_inner_product(factors: int) -> Tuple[float, np.ndarray]:
@@ -147,15 +165,7 @@ class FactoringMachineModel(BaseRecModel):
         k_recs: int,
     ) -> List[int]:
         if user_id not in self.mappings.users_mapping:
-            return [
-                self.mappings.items_inv_mapping[item]
-                for item
-                in np.random.randint(
-                    low=0,
-                    high=self.embeddings.item_embeddings.shape[0],
-                    size=k_recs,
-                )
-            ]
+            return list(self._predict_popular(k_recs))
 
         return [
             self.mappings.items_inv_mapping[item]
@@ -194,12 +204,14 @@ class FactoringMachineModel(BaseRecModel):
             item_features_df=self.features.item_features_df,
             cat_item_features=self.features.cat_item_features,
         )
+        self.dataset = rectools_dataset
 
         self.get_mappings(train)
 
-        self.model.fit(rectools_dataset)
+        self.models.lightfm.fit(rectools_dataset)
+        self.models.popular.fit(rectools_dataset)
 
-        user_embeddings, item_embeddings = self.model.get_vectors(
+        user_embeddings, item_embeddings = self.models.lightfm.get_vectors(
             rectools_dataset
         )
 
@@ -223,12 +235,10 @@ class FactoringMachineModel(BaseRecModel):
         hnsw.add_items(augmented_item_embeddings)
         hnsw.set_ef(self.neigh_params.efS)
 
-        self.label, distance = hnsw.knn_query(
+        self.label, _ = hnsw.knn_query(
             augmented_user_embeddings,
             k=10
         )
-        self.distance = 1 - distance
-
         self.embeddings = FMEmbedding(
             augmented_user_embeddings,
             augmented_item_embeddings
